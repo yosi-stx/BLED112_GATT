@@ -29,6 +29,7 @@ RED_HANDLE_CHAR_UUID = "f0001111-0451-4000-b000-000000000000"
 MSP_CHAR1_UUID = "f0001141-0451-4000-b000-000000000000"
 MSP_CHAR2_UUID = "f0001142-0451-4000-b000-000000000000"
 MSP_CHAR3_UUID = "f0001143-0451-4000-b000-000000000000"
+BATTERY_LEVEL_CHAR_UUID = "00002a19-0000-1000-8000-00805f9b34fb"
 
 # device = None
 
@@ -38,13 +39,15 @@ OUTER_HANDLE_CHANNEL2_STYLE = "OuterHandleChannel2"
 INNER_HANDLE_CHANNEL1_STYLE = "InnerHandleChannel1"
 INNER_HANDLE_CHANNEL2_STYLE = "InnerHandleChannel2"
 CLICKER_STYLE = "Clicker"
+BATTERY_LEVEL_STYLE = "BatteryLevel"
 
 style_names = [
     OUTER_HANDLE_CHANNEL1_STYLE,
     OUTER_HANDLE_CHANNEL2_STYLE,
     INNER_HANDLE_CHANNEL1_STYLE,
     INNER_HANDLE_CHANNEL2_STYLE,
-    CLICKER_STYLE
+    CLICKER_STYLE,
+    BATTERY_LEVEL_STYLE
 ]
 
 progressbar_styles = list()
@@ -60,6 +63,9 @@ fault_entry = list()
 ignore_red_handle_button = None
 ignore_red_handle_checkbutton = None
 ignore_red_handle_state = False
+
+# Battery level
+battery_level = None
 
 root = None
 
@@ -162,7 +168,9 @@ def ignoreCallBack():
    device.subscribe(MY_CHAR_UUID, callback=handle_my_char_data)
    print("Subscribe back to the characteristic successfully!\n")
 
-   
+def handle_battery_level_char_data(handle, value):
+    global battery_level
+    battery_level = int(hexlify(value), 16)
 
 def handle_my_char_data(handle, value):
     """
@@ -249,6 +257,7 @@ def handle_my_char_data(handle, value):
     precentage_inner_handle_channel1 = int((int_inner_handle_channel1 / 4096) * 100)
     precentage_inner_handle_channel2 = int((int_inner_handle_channel2 / 4096) * 100)
     precentage_clicker = int((int_clicker / 4096) * 100)
+    precentage_battery_level = battery_level
     
     # calc delta once every second 
     if (print_cntr % 5 ) == 0:
@@ -263,11 +272,13 @@ def handle_my_char_data(handle, value):
     progressbar_style_inner_handle_channel1 = progressbar_styles[2]
     progressbar_style_inner_handle_channel2 = progressbar_styles[3]
     progressbar_style_clicker = progressbar_styles[4]
+    progressbar_style_battery_level = progressbar_styles[5]
     progressbar_outer_handle_channel1 = progressbars[0]
     progressbar_outer_handle_channel2 = progressbars[1]
     progressbar_inner_handle_channel1 = progressbars[2]
     progressbar_inner_handle_channel2 = progressbars[3]
     progressbar_clicker = progressbars[4]
+    progressbar_battery_level = progressbars[5]
     checkbox_outer_handle_isopen = isopen[0]
     checkbox_inner_handle_isopen = isopen[1]
     checkbox_inner_clicker = inner_clicker
@@ -298,12 +309,17 @@ def handle_my_char_data(handle, value):
         CLICKER_STYLE,
         text=("%d" % int_clicker)
     )
+    progressbar_style_battery_level.configure(
+        BATTERY_LEVEL_STYLE,
+        text=("%d%%" % precentage_battery_level)
+    )
 
     progressbar_outer_handle_channel1["value"] = precentage_outer_handle_channel1
     progressbar_outer_handle_channel2["value"] = precentage_outer_handle_channel2
     progressbar_inner_handle_channel1["value"] = precentage_inner_handle_channel1
     progressbar_inner_handle_channel2["value"] = precentage_inner_handle_channel2
     progressbar_clicker["value"] = precentage_clicker
+    progressbar_battery_level["value"] = precentage_battery_level
 
     update_checkbox(checkbox_outer_handle_isopen, bool_outer_isopen)
     update_checkbox(checkbox_inner_handle_isopen, bool_inner_isopen)
@@ -324,6 +340,7 @@ def handle_my_char_data(handle, value):
     root.update()
 
 PROGRESS_BAR_LEN = 300
+BATTERY_PROGRESS_BAR_LEN = 900
 
 def my_channel_row(frame, row, label, style):
     ttk.Label(
@@ -666,6 +683,30 @@ def my_widgets(frame):
     # Seperator
     row = my_seperator(frame, row)
 
+    # Battery Level
+    ttk.Label(
+        frame,
+        text="Battery Level"
+    ).grid(
+        row=row,
+        column=0,
+        columnspan=3
+    )
+
+    row += 1
+
+    w = ttk.Progressbar(
+        frame,
+        orient=tk.HORIZONTAL,
+        length=BATTERY_PROGRESS_BAR_LEN,
+        style="BatteryLevel"
+    )
+    progressbars.append(w)
+    w.grid(
+        row=row,
+        column=0,
+        columnspan=3
+    )
 
 def init_parser():
     parser = argparse.ArgumentParser(
@@ -689,7 +730,22 @@ def init_parser():
         required=False,
         help="connects to the device with the MAC address"
     )
+    parser.add_argument(
+        "--debug",
+        dest="debug",
+        action="store_true",
+        required=False,
+        help="emulate payload callbacks"
+    )
     return parser
+
+def debug_payload_emulation():
+    from time import sleep
+    from os import urandom
+    while True:
+        payload = urandom(14)
+        handle_my_char_data(None, payload)
+        sleep(0.02)
 
 def main():
     #global device
@@ -703,6 +759,7 @@ def main():
     do_scan = (not avail_address) or avail_name
     manual_mode = (not avail_address) and (not avail_name)
     verify_mode = avail_address and avail_name
+    payload_emulate_mode = args.debug
 
     # Initialize the adapter according to the backend used
     adapter = None
@@ -790,10 +847,23 @@ def main():
         device = adapter.connect(address=device_address)
         print("Connected successfully!\n")
 
+        # Read the battery level for the first time
+        global battery_level
+        battery_level = int(hexlify(device.char_read(BATTERY_LEVEL_CHAR_UUID)), 16)
+
+        # Subscribe to the battery level characteristic
+        device.subscribe(BATTERY_LEVEL_CHAR_UUID, callback=handle_battery_level_char_data)
+
+
         # Subscribe to the wanted characteristic data
         print("Subscribing to the characteristic with UUID %s..." % MY_CHAR_UUID)
         device.subscribe(MY_CHAR_UUID, callback=handle_my_char_data)
         print("Subscribed to the characteristic successfully!\n")
+
+        # DEBUG -- emulate the payload callback
+        if payload_emulate_mode:
+            from threading import Thread
+            Thread(target=debug_payload_emulation, daemon=True).start()
 
         # Run the GUI main loop
         root.mainloop()
