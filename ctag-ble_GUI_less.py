@@ -8,6 +8,8 @@ import threading
 
 import tkinter as tk
 from tkinter import ttk
+from math import floor
+from time import perf_counter as timer
 
 import platform
 BACKEND = None
@@ -27,6 +29,19 @@ prev_clicker_counter = 0
 clicker_counter = 0
 ctag_fault = 0
 prev_counter = 0
+ble_packets_in_second = 0
+
+# full value variables.
+DEAD_ZONE_LOWER_THR = 300
+DEAD_ZONE_UPPER_THR = 3300
+InnerHandleFULLValue = 0
+# InnerHandleChannel1 = 0
+# InnerHandleChannel2 = 0
+prev_int_inner_handle_channel1 = 5555
+prev_int_inner_handle_channel2 = 5555
+Delta_Inner = 0
+Delta_Inner2 = 0
+
 
 MY_CHAR_UUID = "f0001143-0451-4000-b000-000000000000"
 RED_HANDLE_CHAR_UUID = "f0001111-0451-4000-b000-000000000000"
@@ -188,11 +203,20 @@ def handle_my_char_data(handle, value):
     global clicker_counter
     global ctag_fault
     global prev_counter
-
+    global ble_packets_in_second
+    # vars for full value of encoder.
+    global prev_int_inner_handle_channel1
+    global prev_int_inner_handle_channel2
+    global Delta_Inner
+    global Delta_Inner2
+    global InnerHandleFULLValue
+    global DEAD_ZONE_LOWER_THR
+    global DEAD_ZONE_UPPER_THR
+    
     # print("Received data: %s %s" % hexlify(value) str(print_cntr))
     if (print_cntr % 10 ) == 0:
         s = "Received data: " + str(hexlify(value)) + "  " + str(print_cntr)
-        print(s)
+        # print(s)
 
     print_cntr += 1 
 
@@ -244,30 +268,92 @@ def handle_my_char_data(handle, value):
     clicker_analog = analog[4]
     
     # Record encoder1 to file:
+    global start_time_f
     count_dif = counter - prev_counter 
+    time_f = timer() - start_time_f
+
+    # Convert to integer
+    time = int(floor(time_f))
+    
+    global prev_time
+    ble_packets_in_second += 1
+    if time == prev_time:
+        # print(".", end = "", flush=True)
+        #print(repr(ble_packets_in_second),end = " ", flush=True)
+        pass
+    else:
+        pass
+        print(".")
+        # print(repr(ble_packets_in_second))
+        ble_packets_in_second = 0
+    prev_time = time
+    
+    if abs(Delta_Inner) > 20 :
+        print(repr(InnerHandleFULLValue),end = " ", flush=True)
+        
+        
+    
+    # aggregate handle counts of inner encoder.
+    bool_inner_isopen = bool((digital >> 0) & 0x0001)
+    bool_outer_isopen = bool((digital >> 1) & 0x0001)
+    int_inner_handle_channel1 = analog[0]
+    int_inner_handle_channel2 = analog[3]
+    if prev_int_inner_handle_channel1 == 5555:
+        prev_int_inner_handle_channel1 = int_inner_handle_channel1
+        prev_int_inner_handle_channel2 = int_inner_handle_channel2
+    
+# DEAD_ZONE_LOWER_THR 300
+# DEAD_ZONE_UPPER_THR 3300
+     
+
+    if (bool_inner_isopen != 0):
+        InnerHandleFULLValue = 0;
+        print("-",end = " ", flush=True)
+    else:
+          # // check if last 2 samples are in the "live zone", 2 samples are needed to check stability 
+          # // (in the dead zone we can get garbage values, which might be in the right range)
+        if int_inner_handle_channel1 > DEAD_ZONE_LOWER_THR and \
+           int_inner_handle_channel1 < DEAD_ZONE_UPPER_THR and \
+           prev_int_inner_handle_channel1 > DEAD_ZONE_LOWER_THR and \
+           prev_int_inner_handle_channel1 < DEAD_ZONE_UPPER_THR:
+            Delta_Inner = prev_int_inner_handle_channel1 - int_inner_handle_channel1
+            InnerHandleFULLValue += Delta_Inner
+        else:
+            Delta_Inner = prev_int_inner_handle_channel2 - int_inner_handle_channel2
+            InnerHandleFULLValue += Delta_Inner
+
+    if InnerHandleFULLValue < 0 :
+        InnerHandleFULLValue = 0 
+
+    # //update last samples.
+    # prevOuterHandleSample = int_inner_handle_channel1;
+    # prevOuterHandleSampleComplement = m_iOuterHandleChannel2;
+
+    
+    prev_int_inner_handle_channel1 = int_inner_handle_channel1
+    prev_int_inner_handle_channel2 = int_inner_handle_channel2
+
+    
+    
     global file1
     # if count_dif > 1 :
         # L = [ str(counter),",   ", str(encoder1), ", " , str(count_dif), " <<<<<--- " ,"\n" ]  
     # else:
         # L = [ str(counter),",   ", str(encoder1), ", " , str(count_dif), "\n" ]  
     if count_dif > 1 :
-        L = [ str(counter),",   ", str(encoder1), ", " , str(encoder2), " <<<<<--- " ,"\n" ]  
+        L = [ str(time),",   ", str(encoder1), ", " , str(encoder2), " <<<<<--- " ,"\n" ]  
     else:
-        L = [ str(counter),",   ", str(encoder1), ", " , str(encoder2), "\n" ]  
+        L = [ str(time),",   ", str(encoder1), ", " , str(encoder2), "\n" ]  
     file1.writelines(L) 
     prev_counter = counter
     
 
-    bool_inner_isopen = bool((digital >> 0) & 0x0001)
-    bool_outer_isopen = bool((digital >> 1) & 0x0001)
     bool_clicker = bool((digital >> 2) & 0x0001)
     bool_reset = bool((digital >> 4) & 0x0001)
     bool_red_handle = bool((digital >> 7) & 0x0001)
     bool_ignore_red_handle = ignore_red_handle_state
     int_outer_handle_channel1 = analog[1]
     int_outer_handle_channel2 = analog[2]
-    int_inner_handle_channel1 = analog[0]
-    int_inner_handle_channel2 = analog[3]
     int_clicker = clicker_analog
     int_counter = counter
     int_ctag_fault = ctag_fault
@@ -284,7 +370,7 @@ def handle_my_char_data(handle, value):
         Delta = -(prev_int_outer_handle_channel1 - int_outer_handle_channel1)
         if( Delta > 2 or Delta < -2 ):
             s = 'Delta: ' + repr(Delta) 
-            print( s )
+            # print( s )  #2020_05_24 - commented out for other prints to be conspicuous
         prev_int_outer_handle_channel1 = int_outer_handle_channel1
 
     # progressbar_style_outer_handle_channel1 = progressbar_styles[0]
@@ -872,6 +958,13 @@ def main():
         print("Subscribing to the characteristic with UUID %s..." % MY_CHAR_UUID)
         device.subscribe(MY_CHAR_UUID, callback=handle_my_char_data)
         print("Subscribed to the characteristic successfully!\n")
+        
+        # Start time as float (arbitrary value, don't use as is)
+        global start_time_f
+        start_time_f = timer()
+        global prev_time
+        prev_time = 0
+
 
         # DEBUG -- emulate the payload callback
         if payload_emulate_mode:
