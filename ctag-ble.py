@@ -81,9 +81,13 @@ counter_entry = list()
 clicker_counter_entry = list()
 ignore_red = list()
 fault_entry = list()
+version_info = list()
 ignore_red_handle_button = None
 ignore_red_handle_checkbutton = None
 ignore_red_handle_state = False
+ver_MAJOR = 0
+ver_MINOR = 0
+ver_BUILD = 0
 
 # Battery level
 battery_level = None
@@ -248,6 +252,9 @@ def handle_data(my_char, battery_level):
     global prev_clicker_counter
     global clicker_counter
     global ctag_fault
+    global ver_MAJOR
+    global ver_MINOR
+    global ver_BUILD
     
     # print("Received data: %s %s" % hexlify(value) str(print_cntr))
     if (print_cntr % 10 ) == 0:
@@ -265,7 +272,12 @@ def handle_data(my_char, battery_level):
     # print the "MSP Version" out of special info packet
     if (digital == 0x3101):
         if (analog[0] == 0x1965):
-            s = 'MSP Version: ' + repr(analog[2]) + '.' + repr(analog[3]) + '.' + repr(analog[4])
+            ver_MAJOR = analog[2]
+            ver_MINOR = analog[3]
+            ver_BUILD = analog[4]
+            # s = 'MSP Version: ' + repr(analog[2]) + '.' + repr(analog[3]) + '.' + repr(analog[4])
+            s = 'MSP Version: ' + repr(ver_MAJOR) + '.' + repr(ver_MINOR) + '.' + repr(ver_BUILD)
+
             print(s)
     else:
         # extract byteErrorCode from data
@@ -342,7 +354,7 @@ def update_gui(digital, analog, counter, battery_level):
     checkbox_red_handle = red_handle
     checkbox_reset_check = reset_check
     checkbox_ignore_red_handle = ignore_red_handle_checkbutton
-    entry_counter = counter_entry
+    # entry_counter = counter_entry
     entry_clicker_counter = clicker_counter_entry
     entry_fault = fault_entry
     
@@ -385,14 +397,19 @@ def update_gui(digital, analog, counter, battery_level):
     update_checkbox(checkbox_reset_check, bool_reset)
     update_checkbox(checkbox_ignore_red_handle, bool_ignore_red_handle)
 
-    entry_counter.delete(0, tk.END)
-    entry_counter.insert(tk.END, "%d" % int_counter)
+    counter_entry.delete(0, tk.END)
+    counter_entry.insert(tk.END, "%d" % int_counter)
 
     entry_clicker_counter.delete(0, tk.END)
     entry_clicker_counter.insert(tk.END, "%d" % int_clicker_counter)
 
     entry_fault.delete(0, tk.END)
     entry_fault.insert(tk.END, "%d" % int_ctag_fault)
+
+    version_info.delete(0, tk.END)
+    # version_info.insert(tk.END, "%d %d %d " % ver_MAJOR % ver_MINOR % ver_BUILD )
+    s = 'Ver_' + repr(ver_MAJOR) + '.' + repr(ver_MINOR) + '.' + repr(ver_BUILD)
+    version_info.insert(tk.END, "%s" % s )
 
     root.update()
 
@@ -705,23 +722,28 @@ def my_widgets(frame):
     ).grid(
         row=row,
         column=0,
-        sticky=tk.E,
+        sticky=tk.E,            # to put the label on the "East" (right) side/
     )
-    w = ttk.Entry(
-        frame,
-        width=20,
-        # state=tk.DISABLED
-    )
+
     global counter_entry
-    counter_entry = w
-    w.grid(
-        padx=10,
-        pady=5,
-        row=row,
-        column=1,
-        columnspan=2,
-        sticky=tk.W,
-    )
+    counter_entry = ttk.Entry(frame, width=20,)  # state=tk.DISABLED )
+    counter_entry.grid(padx=10, pady=5, row=row, column=1, columnspan=2,sticky=tk.W )
+    
+#    w = ttk.Entry(
+#        frame,
+#        width=20,
+#        # state=tk.DISABLED
+#    )
+#    global counter_entry
+#    counter_entry = w
+#    w.grid(
+#        padx=10,
+#        pady=5,
+#        row=row,
+#        column=1,
+#        columnspan=2,
+#        sticky=tk.W,
+#    )
     
     # C_TAG Fault indication
     ttk.Label(
@@ -776,6 +798,26 @@ def my_widgets(frame):
         column=0,
         columnspan=3
     )
+
+    row += 1
+
+    # Seperator
+    row = my_seperator(frame, row)
+
+    # MSP version info
+    ttk.Label(
+        frame,
+        text="MSP version:"
+    ).grid(
+        row=row,
+        column=0,
+        sticky=tk.E,
+    )
+    global version_info
+    version_info = ttk.Entry( frame, width=20,) #state=tk.DISABLED )
+    version_info.grid(padx=10, pady=5, row=row, column=1, columnspan=2, sticky=tk.W )
+    
+
 
 def init_parser():
     parser = argparse.ArgumentParser(
