@@ -88,6 +88,8 @@ ignore_red_handle_state = False
 ver_MAJOR = 0
 ver_MINOR = 0
 ver_BUILD = 0
+do_once = 1
+serial_MSP = 0x1234
 
 # Battery level
 battery_level = None
@@ -255,6 +257,7 @@ def handle_data(my_char, battery_level):
     global ver_MAJOR
     global ver_MINOR
     global ver_BUILD
+    global serial_MSP
     
     # print("Received data: %s %s" % hexlify(value) str(print_cntr))
     if (print_cntr % 10 ) == 0:
@@ -272,6 +275,9 @@ def handle_data(my_char, battery_level):
     # print the "MSP Version" out of special info packet
     if (digital == 0x3101):
         if (analog[0] == 0x1965):
+            temp_hi = ((int(analog[1]) & 0xFF00 ) >> 8)
+            temp_lo = ((int(analog[1]) & 0x00FF ))
+            serial_MSP = temp_hi + temp_lo #analog[1] 
             ver_MAJOR = analog[2]
             ver_MINOR = analog[3]
             ver_BUILD = analog[4]
@@ -406,10 +412,21 @@ def update_gui(digital, analog, counter, battery_level):
     entry_fault.delete(0, tk.END)
     entry_fault.insert(tk.END, "%d" % int_ctag_fault)
 
-    version_info.delete(0, tk.END)
-    # version_info.insert(tk.END, "%d %d %d " % ver_MAJOR % ver_MINOR % ver_BUILD )
-    s = 'Ver_' + repr(ver_MAJOR) + '.' + repr(ver_MINOR) + '.' + repr(ver_BUILD)
-    version_info.insert(tk.END, "%s" % s )
+    # version_info.delete(0, tk.END)
+    # s = 'Ver_' + repr(ver_MAJOR) + '.' + repr(ver_MINOR) + '.' + repr(ver_BUILD)
+    # version_info.insert(tk.END, "%s" % s )
+    global do_once
+    if do_once:
+        s = 'V' + repr(ver_MAJOR) + '.' + repr(ver_MINOR) + '.' + repr(ver_BUILD)
+        ttk.Label(version_info, text="Version:" ).grid(column=0, row=0, sticky=tk.W)
+        ttk.Label(version_info, text="%s"  % s).grid(column=1, row=0, sticky=tk.W)
+        ttk.Label(version_info, text="         " ).grid(column=2, row=0, sticky=tk.W)
+        ttk.Label(version_info, text="Serial Number:" ).grid(column=3, row=0, sticky=tk.W)
+        strHex = "%0.4X" % serial_MSP
+        s = 'SN_' + strHex
+        ttk.Label(version_info, text="%s"  % s).grid(column=4, row=0, sticky=tk.W)
+        do_once = 0
+
 
     root.update()
 
@@ -804,19 +821,18 @@ def my_widgets(frame):
     # Seperator
     row = my_seperator(frame, row)
 
-    # MSP version info
-    ttk.Label(
-        frame,
-        text="MSP version:"
-    ).grid(
-        row=row,
-        column=0,
-        sticky=tk.E,
-    )
     global version_info
-    version_info = ttk.Entry( frame, width=20,) #state=tk.DISABLED )
-    version_info.grid(padx=10, pady=5, row=row, column=1, columnspan=2, sticky=tk.W )
-    
+    # version_info = ttk.Entry( frame, width=20,) #state=tk.DISABLED )
+    # version_info.grid(padx=10, pady=5, row=row, column=1, columnspan=2, sticky=tk.W )
+
+    version_info = ttk.LabelFrame(frame, text=' MSP information')
+    version_info.grid( row=row, column=0,) # columnspan=2, sticky=tk.W )
+
+    # row += 1
+    # row += 1
+
+    # # Seperator
+    # row = my_seperator(frame, row)
 
 
 def init_parser():
