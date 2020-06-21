@@ -90,6 +90,7 @@ ver_MINOR = 0
 ver_BUILD = 0
 do_once = 1
 serial_MSP = 0x1234
+BLE_special_command = 0
 
 # Battery level
 battery_level = None
@@ -108,15 +109,117 @@ def update_checkbox(checkbox, bool_value):
         checkbox.deselect()
     #print("update_checkbox: ", str(bool_value))
 
-def button_callback():
+#def button_callback():
+def ignore_button_CallBack():
     f_ble_queue.put_nowait(function(target=ble_ignore_red_handle))
 
 def ble_ignore_red_handle():
+    global BLE_special_command
+    BLE_special_command = 0x49
     threading.Thread(target=rw_red_handle, daemon=True).start()
+
+def sleep_button_CallBack():
+    # global BLE_special_command
+    # BLE_special_command = 0x56
+    f_ble_queue.put_nowait(function(target=ble_special_cmnd_V))
+    print("sleep_button")
+
+def ble_special_cmnd_V():
+    global BLE_special_command
+    BLE_special_command = ord('S') #0x56
+    threading.Thread(target=rw_special_cmnd, daemon=True).start()
+
+def alive_button_CallBack():
+    f_ble_queue.put_nowait(function(target=ble_special_cmnd_A))
+    print("alive_button")
+
+def ble_special_cmnd_A():
+    global BLE_special_command
+    BLE_special_command = ord('A') 
+    threading.Thread(target=rw_special_cmnd, daemon=True).start()
+
+def WakeUp_button_CallBack():
+    print("moderate_button")
+    f_ble_queue.put_nowait(function(target=ble_special_cmnd_W))
+
+def ble_special_cmnd_W():
+    global BLE_special_command
+    BLE_special_command = ord('W') 
+    threading.Thread(target=rw_special_cmnd, daemon=True).start()
+
+def cmnd_1_button_CallBack():
+    print("moderate_button")
+    f_ble_queue.put_nowait(function(target=ble_special_cmnd_1))
+
+def ble_special_cmnd_1():
+    global BLE_special_command
+    BLE_special_command = ord('1') 
+    threading.Thread(target=rw_special_cmnd, daemon=True).start()
+
+def cmnd_2_button_CallBack():
+    print("CMD 2")
+    f_ble_queue.put_nowait(function(target=ble_special_cmnd_2))
+
+def ble_special_cmnd_2():
+    global BLE_special_command
+    BLE_special_command = ord('2') 
+    threading.Thread(target=rw_special_cmnd, daemon=True).start()
+
+def cmnd_3_button_CallBack():
+    print("CMD 3")
+    f_ble_queue.put_nowait(function(target=ble_special_cmnd_3))
+
+def ble_special_cmnd_3():
+    global BLE_special_command
+    BLE_special_command = ord('3') 
+    threading.Thread(target=rw_special_cmnd, daemon=True).start()
 
 def rw_red_handle():
     write_red_handle()
     read_red_handle()
+
+def rw_special_cmnd():
+    write_special_cmnd()
+    read_special_cmnd()
+
+def write_special_cmnd():
+    val = bool(1)
+    is_fail = False
+    for i in range(5):
+        try:
+            myL=list()
+            myL.append(BLE_special_command)
+            # myL.append(0x53)
+            # device.char_write(RED_HANDLE_CHAR_UUID, bytes([0x01]), wait_for_response=True)
+            device.char_write(RED_HANDLE_CHAR_UUID, bytes(myL), wait_for_response=True)
+            print("Try: %d" % i)
+            #device.char_write(RED_HANDLE_CHAR_UUID, bytes([0x53]), wait_for_response=True)
+            #device.char_write(RED_HANDLE_CHAR_UUID, bytes([0x01]), wait_for_response=True)
+            break
+        except:
+            is_fail = True
+            pass
+    if is_fail:
+        print("Couldn't write to the characteristic: %s" % str(RED_HANDLE_CHAR_UUID))
+
+def read_special_cmnd():
+    val = None
+    is_fail = False
+    for i in range(5):
+        try:
+            # with device._lock:
+            val = device.char_read(RED_HANDLE_CHAR_UUID)
+            print("read_special_cmnd: ", str(val))
+            print("try: read_special_cmnd - try: %d" % i)
+            break
+        except:
+            is_fail = True
+            pass
+    if is_fail:
+        print("Couldn't read the characteristic: %s" % str(RED_HANDLE_CHAR_UUID))
+    # else:
+        # g_gui_queue.put_nowait(("ignore_red_handle_state", bool(val[0])))
+
 
 def write_red_handle():
     # val = bool(ignore_red_handle_state)
@@ -128,7 +231,10 @@ def write_red_handle():
             
             # there is no meaning to send '0' to "ignore red handle fault" since it is 
             # only one direction workaround to hardware issue.
-            device.char_write(RED_HANDLE_CHAR_UUID, bytes([0x01]), wait_for_response=True)
+            myL=list()
+            myL.append(BLE_special_command)
+            # device.char_write(RED_HANDLE_CHAR_UUID, bytes([0x01]), wait_for_response=True)
+            device.char_write(RED_HANDLE_CHAR_UUID, bytes(myL), wait_for_response=True)
             break
         except:
             is_fail = True
@@ -701,17 +807,9 @@ def my_widgets(frame):
         row=row,
         column=1
     )
-# B = tkinter.Button(top, text ="Hello", command = ignoreCallBack)
     
-    tk.Button(
-        frame,
-        text ="send ignore",
-        # command = ignoreCallBack
-        command = button_callback
-    ).grid(
-        row=row,
-        column=3
-    )
+    # ignore red handle button.
+    tk.Button(frame,text ="send ignore",command = ignore_button_CallBack).grid(row=row,column=3)
     
     # checkbox for the ignore red handle 
     w = tk.Checkbutton(
@@ -746,21 +844,6 @@ def my_widgets(frame):
     counter_entry = ttk.Entry(frame, width=20,)  # state=tk.DISABLED )
     counter_entry.grid(padx=10, pady=5, row=row, column=1, columnspan=2,sticky=tk.W )
     
-#    w = ttk.Entry(
-#        frame,
-#        width=20,
-#        # state=tk.DISABLED
-#    )
-#    global counter_entry
-#    counter_entry = w
-#    w.grid(
-#        padx=10,
-#        pady=5,
-#        row=row,
-#        column=1,
-#        columnspan=2,
-#        sticky=tk.W,
-#    )
     
     # C_TAG Fault indication
     ttk.Label(
@@ -829,10 +912,17 @@ def my_widgets(frame):
     version_info.grid( row=row, column=0,) # columnspan=2, sticky=tk.W )
 
     # row += 1
-    # row += 1
+    row += 1
 
     # # Seperator
-    # row = my_seperator(frame, row)
+    row = my_seperator(frame, row)
+    tk.Button(frame,text =" sleep_button ",command = sleep_button_CallBack).grid(row=row,column=0)
+    tk.Button(frame,text =" alive_button ",command = alive_button_CallBack).grid(row=row,column=1)
+    tk.Button(frame,text ="WakeUp_button ",command = WakeUp_button_CallBack).grid(row=row,column=2)
+    row += 1
+    tk.Button(frame,text ="sleep in 10sec",command = cmnd_1_button_CallBack).grid(row=row,column=0)
+    tk.Button(frame,text ="CMD 2 (50msec)",command = cmnd_2_button_CallBack).grid(row=row,column=1)
+    tk.Button(frame,text ="CMD 3 (20msec)",command = cmnd_3_button_CallBack).grid(row=row,column=2)
 
 
 def init_parser():
