@@ -1,0 +1,657 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>C-TAG BLE Web Monitor</title>
+<style>
+  :root {
+    --bg: #0b1520;
+    --panel: #122333;
+    --panel2: #162b3e;
+    --line: #29485e;
+    --text: #eaf4fb;
+    --muted: #9bb6c9;
+    --blue: #38a7e5;
+    --green: #42d392;
+    --amber: #ffc857;
+    --red: #ff7070;
+    --input: #0e1d2a;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: linear-gradient(135deg, #08111a 0%, #112d43 100%);
+    color: var(--text);
+    font: 15px/1.45 "Segoe UI", Roboto, Arial, sans-serif;
+    min-height: 100vh;
+  }
+  .app { max-width: 1440px; margin: 0 auto; padding: 24px; }
+  header {
+    display: flex; justify-content: space-between; align-items: flex-start; gap: 20px;
+    padding: 10px 0 22px;
+  }
+  h1 { margin: 0; font-size: 27px; letter-spacing: .2px; }
+  .subtitle { margin-top: 4px; color: var(--muted); }
+  .status {
+    padding: 8px 12px; border: 1px solid var(--line); border-radius: 999px;
+    color: var(--muted); white-space: nowrap; background: rgba(8, 17, 26, .55);
+  }
+  .status.connected { border-color: #287c5b; color: var(--green); }
+  .status.error { border-color: #8c4040; color: var(--red); }
+  .layout { display: grid; grid-template-columns: 340px 1fr; gap: 20px; }
+  .panel {
+    border: 1px solid var(--line); border-radius: 14px; background: rgba(18, 35, 51, .94);
+    box-shadow: 0 10px 30px rgba(0,0,0,.16);
+  }
+  .panel-head { padding: 15px 18px; border-bottom: 1px solid var(--line); font-weight: 700; }
+  .panel-body { padding: 17px; }
+  label { display: block; margin: 0 0 6px; color: var(--muted); font-size: 12px; font-weight: 700; letter-spacing: .25px; text-transform: uppercase; }
+  input {
+    width: 100%; margin-bottom: 14px; padding: 10px 11px; border: 1px solid #35556b; border-radius: 8px;
+    background: var(--input); color: var(--text); outline: none; font-family: Consolas, monospace;
+  }
+  input:focus { border-color: var(--blue); box-shadow: 0 0 0 3px rgba(56,167,229,.12); }
+  button {
+    border: 1px solid #3d7696; border-radius: 8px; padding: 10px 12px; color: white;
+    background: #1c6e9e; cursor: pointer; font-weight: 700;
+  }
+  button:hover:not(:disabled) { filter: brightness(1.13); }
+  button:disabled { opacity: .43; cursor: not-allowed; }
+  button.ghost { background: transparent; border-color: #486174; }
+  button.warn { background: #8e5904; border-color: #bc821d; }
+  .button-row { display: flex; flex-wrap: wrap; gap: 9px; margin-top: 4px; }
+  .hint {
+    padding: 11px 12px; margin-top: 14px; border-radius: 8px; border-left: 3px solid var(--amber);
+    background: rgba(255,200,87,.10); color: #ffe5a4; font-size: 12.5px;
+  }
+  .hint code { color: #fff1c4; }
+  .telemetry { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 20px; }
+  .wide { grid-column: 1 / -1; }
+  .metrics { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 12px; }
+  .metric {
+    padding: 13px; background: var(--panel2); border: 1px solid var(--line); border-radius: 10px;
+  }
+  .metric .caption { color: var(--muted); font-size: 12px; }
+  .metric .value { margin-top: 5px; color: #fff; font-size: 24px; font-weight: 750; }
+  .channel { margin: 13px 0; }
+  .channel-top { display: flex; justify-content: space-between; gap: 12px; font-size: 13px; }
+  .channel-top .raw { color: var(--muted); font-family: Consolas, monospace; }
+  progress {
+    width: 100%; height: 16px; margin-top: 7px; border: none; border-radius: 999px; overflow: hidden;
+    background: #0a1722;
+  }
+  progress::-webkit-progress-bar { background: #0a1722; border-radius: 999px; }
+  progress::-webkit-progress-value { background: linear-gradient(90deg, #1a91cf, #42d392); border-radius: 999px; }
+  progress::-moz-progress-bar { background: linear-gradient(90deg, #1a91cf, #42d392); border-radius: 999px; }
+  .checkbox-grid { display: grid; grid-template-columns: repeat(2, minmax(0,1fr)); gap: 10px; }
+  .check {
+    display: flex; align-items: center; gap: 8px; padding: 10px; background: var(--panel2);
+    border: 1px solid var(--line); border-radius: 9px; color: #dbeaf4;
+  }
+  .check input { width: 16px; height: 16px; margin: 0; accent-color: var(--green); }
+  .command-grid { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 10px; }
+  .command-grid button { font-size: 13px; }
+  .log {
+    height: 290px; overflow: auto; padding: 12px; background: #07111a; color: #b9d7e8;
+    border: 1px solid var(--line); border-radius: 9px; font: 12px/1.52 Consolas, "Courier New", monospace;
+    white-space: pre-wrap; word-break: break-word;
+  }
+  .log .error { color: var(--red); }
+  .log .ok { color: var(--green); }
+  .log .note { color: var(--amber); }
+  .meta-list { margin: 0; padding-left: 17px; color: var(--muted); font-size: 12.5px; }
+  .meta-list li { margin: 5px 0; }
+  .footer-note { margin-top: 17px; color: var(--muted); font-size: 12px; }
+  code { color: #9edaff; }
+  @media (max-width: 980px) {
+    .layout { grid-template-columns: 1fr; }
+    .metrics { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  }
+  @media (max-width: 620px) {
+    .app { padding: 14px; }
+    header { flex-direction: column; }
+    .telemetry { grid-template-columns: 1fr; }
+    .metrics { grid-template-columns: 1fr 1fr; }
+    .command-grid { grid-template-columns: 1fr 1fr; }
+  }
+</style>
+</head>
+<body>
+<div class="app">
+  <header>
+    <div>
+      <h1>C-TAG BLE Web Monitor</h1>
+      <div class="subtitle">Browser-based replacement for the desktop Python diagnostic application</div>
+    </div>
+    <div id="connectionStatus" class="status">Not connected</div>
+  </header>
+
+  <div class="layout">
+    <aside class="panel">
+      <div class="panel-head">Connection</div>
+      <div class="panel-body">
+        <label for="namePrefix">BLE device name prefix</label>
+        <input id="namePrefix" value="Ctag_" autocomplete="off">
+
+        <label for="serviceUuid">Custom GATT service UUID</label>
+        <!--
+          IMPORTANT:
+          The original Python program names only characteristics, not their parent service.
+          The default below is a reasonable inference from the f00011xx/f00014xx UUID family,
+          but it MUST be confirmed from firmware or a BLE explorer before relying on it.
+        -->
+        <input id="serviceUuid" value="f0001100-0451-4000-b000-000000000000" autocomplete="off">
+
+        <div class="button-row">
+          <button id="connectBtn">Connect to C-TAG</button>
+          <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
+        </div>
+
+        <div class="hint">
+          The custom service UUID is required by Web Bluetooth. The original Python program can
+          find a characteristic directly; a browser must first open its parent GATT service.
+          The default value is a <strong>candidate</strong>, not a confirmed value.
+        </div>
+
+        <h3 style="margin:22px 0 9px;font-size:15px">Device information</h3>
+        <ul class="meta-list">
+          <li><strong>Name:</strong> <span id="deviceName">—</span></li>
+          <li><strong>Browser device ID:</strong> <span id="deviceId">—</span></li>
+          <li><strong>MSP version:</strong> <span id="versionValue">—</span></li>
+          <li><strong>Legacy-decoded MSP serial:</strong> <span id="serialValue">—</span></li>
+        </ul>
+
+        <div class="footer-note">
+          Open this file through <code>http://localhost</code> or HTTPS, not by double-clicking it
+          as a <code>file://</code> URL.
+        </div>
+      </div>
+    </aside>
+
+    <main class="telemetry">
+      <section class="panel wide">
+        <div class="panel-head">Live status</div>
+        <div class="panel-body">
+          <div class="metrics">
+            <div class="metric"><div class="caption">Packets counter</div><div class="value" id="packetCounter">—</div></div>
+            <div class="metric"><div class="caption">Clicker counter</div><div class="value" id="clickerCounter">—</div></div>
+            <div class="metric"><div class="caption">Fault indication</div><div class="value" id="faultCode">—</div></div>
+            <div class="metric"><div class="caption">Battery level</div><div class="value" id="batteryLevel">—</div></div>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">Outer Handle</div>
+        <div class="panel-body">
+          <div class="checkbox-grid">
+            <label class="check"><input id="outerOpen" type="checkbox" disabled> Is Open</label>
+          </div>
+          <div class="channel">
+            <div class="channel-top"><span>Channel 1</span><span class="raw" id="outer1Text">—</span></div>
+            <progress id="outer1Bar" value="0" max="100"></progress>
+          </div>
+          <div class="channel">
+            <div class="channel-top"><span>Channel 2</span><span class="raw" id="outer2Text">—</span></div>
+            <progress id="outer2Bar" value="0" max="100"></progress>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">Inner Handle</div>
+        <div class="panel-body">
+          <div class="checkbox-grid">
+            <label class="check"><input id="innerOpen" type="checkbox" disabled> Is Open</label>
+          </div>
+          <div class="channel">
+            <div class="channel-top"><span>Channel 1</span><span class="raw" id="inner1Text">—</span></div>
+            <progress id="inner1Bar" value="0" max="100"></progress>
+          </div>
+          <div class="channel">
+            <div class="channel-top"><span>Channel 2</span><span class="raw" id="inner2Text">—</span></div>
+            <progress id="inner2Bar" value="0" max="100"></progress>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">Clicker and digital signals</div>
+        <div class="panel-body">
+          <div class="checkbox-grid">
+            <label class="check"><input id="clickerActive" type="checkbox" disabled> Inner Clicker</label>
+            <label class="check"><input id="redHandle" type="checkbox" disabled> Red Handle</label>
+            <label class="check"><input id="resetActive" type="checkbox" disabled> Reset Button</label>
+            <label class="check"><input id="ignoreRed" type="checkbox" disabled> Ignore Red Handle Fault</label>
+          </div>
+          <div class="channel">
+            <div class="channel-top"><span>Clicker analog value</span><span class="raw" id="clickerText">—</span></div>
+            <progress id="clickerBar" value="0" max="100"></progress>
+          </div>
+        </div>
+      </section>
+
+      <section class="panel">
+        <div class="panel-head">Device commands</div>
+        <div class="panel-body">
+          <div class="command-grid">
+            <button class="warn command" data-byte="0x49" title="ASCII I">Send ignore</button>
+            <button class="command" data-byte="0x53" title="ASCII S">Sleep</button>
+            <button class="command" data-byte="0x41" title="ASCII A">Alive</button>
+            <button class="command" data-byte="0x57" title="ASCII W">Wake Up</button>
+            <button class="command" data-byte="0x31" title="ASCII 1">Sleep in 10 sec</button>
+            <button class="command" data-byte="0x32" title="ASCII 2">CMD 2 (50 ms)</button>
+            <button class="command" data-byte="0x33" title="ASCII 3">CMD 3 (20 ms)</button>
+          </div>
+          <div class="hint">
+            Commands use a write-with-response operation to the original command characteristic.
+            Their actual device-side effect must match the C-TAG firmware command protocol.
+          </div>
+        </div>
+      </section>
+
+      <section class="panel wide">
+        <div class="panel-head" style="display:flex;justify-content:space-between;align-items:center">
+          <span>Communication log</span>
+          <button id="clearLogBtn" class="ghost" style="padding:6px 10px;font-size:12px">Clear</button>
+        </div>
+        <div class="panel-body"><div id="log" class="log"></div></div>
+      </section>
+    </main>
+  </div>
+</div>
+
+<script>
+"use strict";
+
+/*
+  C-TAG BLE Web Monitor
+  ---------------------
+  This single-file application uses the browser's Web Bluetooth API instead of:
+      - pygatt
+      - BLED112 hardware
+      - Python multiprocessing/threading
+
+  The telemetry frame parsing, UUIDs, bit interpretation, analog mapping, and command bytes
+  are intentionally based on the supplied device-ble.py program.
+
+  Web Bluetooth constraints:
+    1. It works only in a secure context (HTTPS or localhost).
+    2. The user must click the Connect button and choose a device in Chrome's chooser.
+    3. The browser needs the parent SERVICE UUID to access a characteristic.
+    4. Browsers do NOT expose the device MAC address to JavaScript.
+*/
+
+// ---- UUIDs copied from the original Python program ----
+const TELEMETRY_CHARACTERISTIC_UUID = "f0001143-0451-4000-b000-000000000000";
+const COMMAND_CHARACTERISTIC_UUID   = "f0001111-0451-4000-b000-000000000000";
+const BATTERY_SERVICE_UUID          = 0x180F; // Standard Battery Service
+const BATTERY_CHARACTERISTIC_UUID   = 0x2A19; // Standard Battery Level characteristic
+
+// The original Python app prints one telemetry frame every 10 packets.
+const LOG_EVERY_N_PACKETS = 10;
+
+// ---- Browser Bluetooth state ----
+let bluetoothDevice = null;
+let gattServer = null;
+let telemetryCharacteristic = null;
+let commandCharacteristic = null;
+let batteryCharacteristic = null;
+
+let packetCount = 0;
+let previousClicker4BitCounter = 0;
+let cumulativeClickerCounter = 0;
+let ignoreRedHandleState = false;
+
+// ---- Small DOM helpers ----
+const $ = (id) => document.getElementById(id);
+
+function setStatus(text, state = "") {
+  const element = $("connectionStatus");
+  element.textContent = text;
+  element.className = "status" + (state ? " " + state : "");
+}
+
+function log(message, level = "") {
+  const item = document.createElement("div");
+  item.className = level;
+  const time = new Date().toLocaleTimeString();
+  item.textContent = `[${time}] ${message}`;
+  $("log").appendChild(item);
+  $("log").scrollTop = $("log").scrollHeight;
+}
+
+function asHex(dataView) {
+  const bytes = [];
+  for (let i = 0; i < dataView.byteLength; i++) {
+    bytes.push(dataView.getUint8(i).toString(16).padStart(2, "0"));
+  }
+  return bytes.join(" ").toUpperCase();
+}
+
+function uuidText(value) {
+  return String(value).trim().toLowerCase();
+}
+
+function isValidUuid(value) {
+  // Browser APIs accept 16-bit aliases too, but the C-TAG custom service should be a full UUID.
+  return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value);
+}
+
+function setCheckbox(id, checked) {
+  $(id).checked = Boolean(checked);
+}
+
+function setChannel(id, rawValue) {
+  const percent = Math.max(0, Math.min(100, Math.round((rawValue / 4096) * 100)));
+  $(`${id}Bar`).value = percent;
+  $(`${id}Text`).textContent = `${rawValue} (${percent}%)`;
+}
+
+function setCommandButtonsEnabled(enabled) {
+  document.querySelectorAll(".command").forEach((button) => {
+    button.disabled = !enabled;
+  });
+}
+
+function setConnectedUi(connected) {
+  $("connectBtn").disabled = connected;
+  $("disconnectBtn").disabled = !connected;
+  $("namePrefix").disabled = connected;
+  $("serviceUuid").disabled = connected;
+  setCommandButtonsEnabled(connected && commandCharacteristic !== null);
+}
+
+// ---- BLE selection and connection ----
+async function connect() {
+  if (!navigator.bluetooth) {
+    setStatus("Web Bluetooth is unavailable", "error");
+    log("This Chrome installation does not expose navigator.bluetooth.", "error");
+    return;
+  }
+
+  const namePrefix = $("namePrefix").value.trim();
+  const customServiceUuid = uuidText($("serviceUuid").value);
+
+  if (!isValidUuid(customServiceUuid)) {
+    setStatus("Invalid custom service UUID", "error");
+    log("Enter the full custom GATT service UUID before connecting.", "error");
+    return;
+  }
+
+  try {
+    setStatus("Opening device chooser...");
+    log(`Requesting a nearby device with name prefix "${namePrefix || "(any)"}".`);
+
+    /*
+      `optionalServices` grants this page permission to access services after the user chooses a device.
+      We include the custom service and the standard Battery Service.
+    */
+    const requestOptions = {
+      optionalServices: [customServiceUuid, BATTERY_SERVICE_UUID]
+    };
+
+    // Use a C-TAG name filter when one is supplied. Otherwise show all BLE devices.
+    if (namePrefix) {
+      requestOptions.filters = [{ namePrefix }];
+    } else {
+      requestOptions.acceptAllDevices = true;
+    }
+
+    bluetoothDevice = await navigator.bluetooth.requestDevice(requestOptions);
+    bluetoothDevice.addEventListener("gattserverdisconnected", onDisconnected);
+
+    $("deviceName").textContent = bluetoothDevice.name || "(no advertised name)";
+    $("deviceId").textContent = bluetoothDevice.id || "(browser did not provide an ID)";
+    log(`Selected device: ${bluetoothDevice.name || "Unnamed device"}`, "ok");
+
+    setStatus("Connecting...");
+    gattServer = await bluetoothDevice.gatt.connect();
+    log("Connected to the GATT server.", "ok");
+
+    // Web Bluetooth requires the parent service before a characteristic can be opened.
+    const customService = await gattServer.getPrimaryService(customServiceUuid);
+    log(`Opened custom service ${customServiceUuid}.`, "ok");
+
+    telemetryCharacteristic = await customService.getCharacteristic(TELEMETRY_CHARACTERISTIC_UUID);
+    commandCharacteristic = await customService.getCharacteristic(COMMAND_CHARACTERISTIC_UUID);
+
+    telemetryCharacteristic.addEventListener(
+      "characteristicvaluechanged",
+      onTelemetryNotification
+    );
+    await telemetryCharacteristic.startNotifications();
+    log(`Telemetry notifications started: ${TELEMETRY_CHARACTERISTIC_UUID}`, "ok");
+
+    await connectBatteryService();
+
+    setStatus("Connected", "connected");
+    setConnectedUi(true);
+
+  } catch (error) {
+    const message = error?.message || String(error);
+    setStatus("Connection failed", "error");
+    log(`Connection error: ${message}`, "error");
+
+    /*
+      The most common cause after the device was selected:
+      the entered custom service UUID is incorrect, or the service was not granted in the chooser.
+    */
+    if (/service/i.test(message)) {
+      log("Check the custom GATT service UUID. The supplied Python source lists characteristics but not the parent service.", "note");
+    }
+
+    await safeDisconnect(false);
+  }
+}
+
+async function connectBatteryService() {
+  try {
+    const batteryService = await gattServer.getPrimaryService(BATTERY_SERVICE_UUID);
+    batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
+
+    // Initial battery read, equivalent to the original Python code.
+    const initialBatteryValue = await batteryCharacteristic.readValue();
+    updateBattery(initialBatteryValue);
+
+    // The device may or may not allow Battery Level notifications. Try without failing the main connection.
+    batteryCharacteristic.addEventListener("characteristicvaluechanged", updateBattery);
+    await batteryCharacteristic.startNotifications();
+    log("Battery Level notifications started.", "ok");
+
+  } catch (error) {
+    batteryCharacteristic = null;
+    log(`Battery service was not available or not notifiable: ${error?.message || error}`, "note");
+  }
+}
+
+function onDisconnected() {
+  log("Device disconnected.", "note");
+  resetConnectionState();
+  setStatus("Disconnected");
+}
+
+async function disconnect() {
+  await safeDisconnect(true);
+}
+
+async function safeDisconnect(writeLog) {
+  try {
+    if (bluetoothDevice?.gatt?.connected) {
+      bluetoothDevice.gatt.disconnect();
+      if (writeLog) log("Disconnect requested.", "note");
+    }
+  } catch (error) {
+    if (writeLog) log(`Disconnect error: ${error?.message || error}`, "error");
+  } finally {
+    resetConnectionState();
+    setStatus("Not connected");
+  }
+}
+
+function resetConnectionState() {
+  gattServer = null;
+  telemetryCharacteristic = null;
+  commandCharacteristic = null;
+  batteryCharacteristic = null;
+  setConnectedUi(false);
+}
+
+// ---- Incoming notifications ----
+function onTelemetryNotification(event) {
+  const value = event.target.value; // DataView
+  parseTelemetry(value);
+}
+
+function updateBattery(eventOrDataView) {
+  const value = eventOrDataView.target ? eventOrDataView.target.value : eventOrDataView;
+  if (!value || value.byteLength < 1) return;
+
+  const percentage = value.getUint8(0);
+  $("batteryLevel").textContent = `${percentage}%`;
+}
+
+function parseTelemetry(value) {
+  if (!value || value.byteLength < 14) {
+    log(`Ignored short telemetry frame: ${value ? value.byteLength : 0} byte(s).`, "error");
+    return;
+  }
+
+  /*
+    Preserve the original Python byte mapping:
+      digital = value[0] + (value[1] << 8)
+      analog[0..4] = LE16 at byte pairs 2..11
+      packet counter = value[13]
+  */
+  const digital = value.getUint16(0, true);
+  const analog = [
+    value.getUint16(2, true),   // Inner Handle Channel 1
+    value.getUint16(4, true),   // Outer Handle Channel 1
+    value.getUint16(6, true),   // Outer Handle Channel 2
+    value.getUint16(8, true),   // Inner Handle Channel 2
+    value.getUint16(10, true)   // Clicker analog
+  ];
+  const counter = value.getUint8(13);
+
+  packetCount++;
+  $("packetCounter").textContent = String(counter);
+
+  // Original status-bit definitions.
+  setCheckbox("innerOpen", (digital & (1 << 0)) !== 0);
+  setCheckbox("outerOpen", (digital & (1 << 1)) !== 0);
+  setCheckbox("clickerActive", (digital & (1 << 2)) !== 0);
+  setCheckbox("resetActive", (digital & (1 << 4)) !== 0);
+  setCheckbox("redHandle", (digital & (1 << 7)) !== 0);
+  setCheckbox("ignoreRed", ignoreRedHandleState);
+
+  setChannel("inner1", analog[0]);
+  setChannel("outer1", analog[1]);
+  setChannel("outer2", analog[2]);
+  setChannel("inner2", analog[3]);
+  setChannel("clicker", analog[4]);
+
+  // Special MSP version-info packet detection is unchanged from the Python program.
+  if (digital === 0x3101 && analog[0] === 0x1965) {
+    /*
+      This deliberately preserves the original code's serial calculation:
+        highByte + lowByte
+      This may not be the intended 16-bit reconstruction; it is labeled as "legacy-decoded".
+    */
+    const serialMsp = ((analog[1] >> 8) & 0xFF) + (analog[1] & 0xFF);
+    $("serialValue").textContent = `SN_${serialMsp.toString(16).toUpperCase().padStart(4, "0")}`;
+    $("versionValue").textContent = `V${analog[2]}.${analog[3]}.${analog[4]}`;
+    log(`MSP information: V${analog[2]}.${analog[3]}.${analog[4]}`, "ok");
+  } else {
+    const byte1 = value.getUint8(1);
+    const faultCode = byte1 & 0x0F;
+    const clicker4BitCounter = (byte1 & 0xF0) >> 4;
+
+    $("faultCode").textContent = String(faultCode);
+
+    // Same 4-bit rollover handling as the original Python program.
+    if (previousClicker4BitCounter !== clicker4BitCounter) {
+      const delta = clicker4BitCounter > previousClicker4BitCounter
+        ? clicker4BitCounter - previousClicker4BitCounter
+        : (15 - previousClicker4BitCounter) + clicker4BitCounter + 1;
+
+      cumulativeClickerCounter += delta;
+      previousClicker4BitCounter = clicker4BitCounter;
+      $("clickerCounter").textContent = String(cumulativeClickerCounter);
+      log(`Clicker increment: +${delta}`, "ok");
+    }
+  }
+
+  if ((packetCount % LOG_EVERY_N_PACKETS) === 0) {
+    log(`Telemetry #${packetCount}: ${asHex(value)}`);
+  }
+}
+
+// ---- Outgoing commands ----
+async function sendCommand(byteValue, label) {
+  if (!commandCharacteristic) {
+    log("No command characteristic is available. Connect first.", "error");
+    return;
+  }
+
+  try {
+    const payload = new Uint8Array([byteValue]);
+    const hexByte = `0x${byteValue.toString(16).toUpperCase().padStart(2, "0")}`;
+
+    /*
+      Newer Web Bluetooth implementations expose writeValueWithResponse().
+      The fallback keeps compatibility with browsers exposing only writeValue().
+    */
+    if (typeof commandCharacteristic.writeValueWithResponse === "function") {
+      await commandCharacteristic.writeValueWithResponse(payload);
+    } else {
+      await commandCharacteristic.writeValue(payload);
+    }
+
+    log(`Sent ${label}: ${hexByte}`, "ok");
+
+    // Original Python code immediately reads the same command characteristic after writing.
+    try {
+      const response = await commandCharacteristic.readValue();
+      const responseHex = asHex(response);
+      log(`Command response: ${responseHex || "(empty)"}`);
+
+      if (label === "Send ignore" && response.byteLength > 0) {
+        ignoreRedHandleState = response.getUint8(0) !== 0;
+        setCheckbox("ignoreRed", ignoreRedHandleState);
+      }
+    } catch (readError) {
+      log(`Command written, but response read failed: ${readError?.message || readError}`, "note");
+    }
+
+  } catch (error) {
+    log(`Command ${label} failed: ${error?.message || error}`, "error");
+  }
+}
+
+// ---- UI event wiring ----
+$("connectBtn").addEventListener("click", connect);
+$("disconnectBtn").addEventListener("click", disconnect);
+$("clearLogBtn").addEventListener("click", () => { $("log").replaceChildren(); });
+
+document.querySelectorAll(".command").forEach((button) => {
+  button.disabled = true;
+  button.addEventListener("click", () => {
+    const byteValue = Number(button.dataset.byte);
+    sendCommand(byteValue, button.textContent.trim());
+  });
+});
+
+// Initial availability information.
+if (!navigator.bluetooth) {
+  setStatus("Web Bluetooth unsupported", "error");
+  log("Web Bluetooth is not available in this browser/context.", "error");
+} else if (!window.isSecureContext) {
+  setStatus("Secure context required", "error");
+  log("Use HTTPS or http://localhost. Web Bluetooth is not available from a regular file:// URL.", "error");
+} else {
+  log("Ready. Set the custom service UUID, then click Connect.");
+}
+</script>
+</body>
+</html>
