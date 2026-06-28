@@ -134,24 +134,17 @@
         <label for="namePrefix">BLE device name prefix</label>
         <input id="namePrefix" value="Ctag_" autocomplete="off">
 
-        <label for="serviceUuid">Custom GATT service UUID</label>
-        <!--
-          IMPORTANT:
-          The original Python program names only characteristics, not their parent service.
-          The default below is a reasonable inference from the f00011xx/f00014xx UUID family,
-          but it MUST be confirmed from firmware or a BLE explorer before relying on it.
-        -->
-        <input id="serviceUuid" value="f0001100-0451-4000-b000-000000000000" autocomplete="off">
-
         <div class="button-row">
           <button id="connectBtn">Connect to C-TAG</button>
           <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
         </div>
 
         <div class="hint">
-          The custom service UUID is required by Web Bluetooth. The original Python program can
-          find a characteristic directly; a browser must first open its parent GATT service.
-          The default value is a <strong>candidate</strong>, not a confirmed value.
+          <strong>Fixed GATT service mapping:</strong><br>
+          Telemetry <code>f0001143…</code> is opened from data service
+          <code>f0001140-0451-4000-b000-000000000000</code>.<br>
+          Commands <code>f0001111…</code> are opened separately from command service
+          <code>f0001110-0451-4000-b000-000000000000</code>.
         </div>
 
         <h3 style="margin:22px 0 9px;font-size:15px">Device information</h3>
@@ -283,9 +276,17 @@
     4. Browsers do NOT expose the device MAC address to JavaScript.
 */
 
-// ---- UUIDs copied from the original Python program ----
+// ---- UUIDs from the original Python program, mapped to their parent services ----
+//
+// The previous browser version incorrectly treated f0001143 and f0001111 as
+// characteristics of one guessed f0001100 service. They belong to separate
+// services in this TI-style UUID family.
+const TELEMETRY_SERVICE_UUID        = "f0001140-0451-4000-b000-000000000000";
 const TELEMETRY_CHARACTERISTIC_UUID = "f0001143-0451-4000-b000-000000000000";
+
+const COMMAND_SERVICE_UUID          = "f0001110-0451-4000-b000-000000000000";
 const COMMAND_CHARACTERISTIC_UUID   = "f0001111-0451-4000-b000-000000000000";
+
 const BATTERY_SERVICE_UUID          = 0x180F; // Standard Battery Service
 const BATTERY_CHARACTERISTIC_UUID   = 0x2A19; // Standard Battery Level characteristic
 
@@ -359,8 +360,13 @@ function setConnectedUi(connected) {
   $("connectBtn").disabled = connected;
   $("disconnectBtn").disabled = !connected;
   $("namePrefix").disabled = connected;
-  $("serviceUuid").disabled = connected;
+  // The telemetry link can be active even when the optional command service
+  // cannot be opened, so buttons remain disabled until that service is ready.
   setCommandButtonsEnabled(connected && commandCharacteristic !== null);
+}
+
+function delay(milliseconds) {
+  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
 
 // ---- BLE selection and connection ----
@@ -372,27 +378,24 @@ async function connect() {
   }
 
   const namePrefix = $("namePrefix").value.trim();
-  const customServiceUuid = uuidText($("serviceUuid").value);
-
-  if (!isValidUuid(customServiceUuid)) {
-    setStatus("Invalid custom service UUID", "error");
-    log("Enter the full custom GATT service UUID before connecting.", "error");
-    return;
-  }
 
   try {
     setStatus("Opening device chooser...");
     log(`Requesting a nearby device with name prefix "${namePrefix || "(any)"}".`);
 
     /*
-      `optionalServices` grants this page permission to access services after the user chooses a device.
-      We include the custom service and the standard Battery Service.
+      Web Bluetooth grants access per SERVICE, not per characteristic.
+      The C-TAG telemetry and command characteristics are in two separate
+      custom services, so both must be requested here.
     */
     const requestOptions = {
-      optionalServices: [customServiceUuid, BATTERY_SERVICE_UUID]
+      optionalServices: [
+        TELEMETRY_SERVICE_UUID,
+        COMMAND_SERVICE_UUID,
+        BATTERY_SERVICE_UUID
+      ]
     };
 
-    // Use a C-TAG name filter when one is supplied. Otherwise show all BLE devices.
     if (namePrefix) {
       requestOptions.filters = [{ namePrefix }];
     } else {
@@ -410,39 +413,106 @@ async function connect() {
     gattServer = await bluetoothDevice.gatt.connect();
     log("Connected to the GATT server.", "ok");
 
-    // Web Bluetooth requires the parent service before a characteristic can be opened.
-    const customService = await gattServer.getPrimaryService(customServiceUuid);
-    log(`Opened custom service ${customServiceUuid}.`, "ok");
+    /*
+      TELEMETRY IS THE ONLY REQUIRED STARTUP OPERATION.
+      Start it first, before opening the optional command and battery services.
+      This closely matches the useful part of the Python program:
+          connect -> subscribe to f0001143...
+    */
+    const telemetryService = await gattServer.getPrimaryService(TELEMETRY_SERVICE_UUID);
+    log(`Opened telemetry service ${TELEMETRY_SERVICE_UUID}.`, "ok");
 
-    telemetryCharacteristic = await customService.getCharacteristic(TELEMETRY_CHARACTERISTIC_UUID);
-    commandCharacteristic = await customService.getCharacteristic(COMMAND_CHARACTERISTIC_UUID);
+    telemetryCharacteristic = await telemetryService.getCharacteristic(
+      TELEMETRY_CHARACTERISTIC_UUID
+    );
+
+    const telemetryProperties = telemetryCharacteristic.properties;
+    log(
+      `Telemetry characteristic properties: ` +
+      `notify=${Boolean(telemetryProperties.notify)}, ` +
+      `indicate=${Boolean(telemetryProperties.indicate)}, ` +
+      `read=${Boolean(telemetryProperties.read)}.`
+    );
+
+    if (!telemetryProperties.notify && !telemetryProperties.indicate) {
+      throw new Error(
+        "Telemetry characteristic exists but does not advertise Notify or Indicate support."
+      );
+    }
 
     telemetryCharacteristic.addEventListener(
       "characteristicvaluechanged",
       onTelemetryNotification
     );
+
+    // Subscribe before doing any nonessential GATT operation.
     await telemetryCharacteristic.startNotifications();
     log(`Telemetry notifications started: ${TELEMETRY_CHARACTERISTIC_UUID}`, "ok");
 
-    await connectBatteryService();
-
-    setStatus("Connected", "connected");
+    setStatus("Connected — telemetry active", "connected");
     setConnectedUi(true);
+
+    /*
+      Command and battery handling are useful, but not required to establish
+      the live data stream. Open them later and keep a successful telemetry
+      connection alive even if one of these optional steps fails.
+    */
+    window.setTimeout(() => {
+      openOptionalServices().catch((error) => {
+        log(`Optional service setup error: ${error?.message || error}`, "note");
+      });
+    }, 350);
 
   } catch (error) {
     const message = error?.message || String(error);
-    setStatus("Connection failed", "error");
-    log(`Connection error: ${message}`, "error");
+    setStatus("Telemetry connection failed", "error");
+    log(`Telemetry connection error: ${message}`, "error");
 
-    /*
-      The most common cause after the device was selected:
-      the entered custom service UUID is incorrect, or the service was not granted in the chooser.
-    */
     if (/service/i.test(message)) {
-      log("Check the custom GATT service UUID. The supplied Python source lists characteristics but not the parent service.", "note");
+      log(
+        "The telemetry service could not be opened. Check that the firmware exposes " +
+        TELEMETRY_SERVICE_UUID + " and characteristic " + TELEMETRY_CHARACTERISTIC_UUID + ".",
+        "note"
+      );
     }
 
     await safeDisconnect(false);
+  }
+}
+
+async function openOptionalServices() {
+  if (!gattServer?.connected) return;
+
+  // Command service is independent from the telemetry service.
+  try {
+    const commandService = await gattServer.getPrimaryService(COMMAND_SERVICE_UUID);
+    commandCharacteristic = await commandService.getCharacteristic(
+      COMMAND_CHARACTERISTIC_UUID
+    );
+
+    const properties = commandCharacteristic.properties;
+    log(
+      `Command service ready: write=${Boolean(properties.write)}, ` +
+      `writeWithoutResponse=${Boolean(properties.writeWithoutResponse)}, ` +
+      `read=${Boolean(properties.read)}.`,
+      "ok"
+    );
+
+    setConnectedUi(true);
+  } catch (error) {
+    commandCharacteristic = null;
+    log(
+      `Command service is unavailable; telemetry remains active. ` +
+      `${error?.message || error}`,
+      "note"
+    );
+  }
+
+  // Avoid back-to-back GATT operations immediately after enabling telemetry.
+  await delay(250);
+
+  if (gattServer?.connected) {
+    await connectBatteryService();
   }
 }
 
@@ -451,18 +521,31 @@ async function connectBatteryService() {
     const batteryService = await gattServer.getPrimaryService(BATTERY_SERVICE_UUID);
     batteryCharacteristic = await batteryService.getCharacteristic(BATTERY_CHARACTERISTIC_UUID);
 
-    // Initial battery read, equivalent to the original Python code.
+    // Read first. This is nonfatal; telemetry must keep running if battery access fails.
     const initialBatteryValue = await batteryCharacteristic.readValue();
     updateBattery(initialBatteryValue);
+    log(`Initial battery level: ${initialBatteryValue.getUint8(0)}%.`, "ok");
 
-    // The device may or may not allow Battery Level notifications. Try without failing the main connection.
-    batteryCharacteristic.addEventListener("characteristicvaluechanged", updateBattery);
-    await batteryCharacteristic.startNotifications();
-    log("Battery Level notifications started.", "ok");
+    /*
+      The Python program subscribes to Battery Level. Keep that behavior, but
+      make notification support optional: some peripherals allow reads while
+      not exposing the Notify property on this standard characteristic.
+    */
+    if (batteryCharacteristic.properties.notify || batteryCharacteristic.properties.indicate) {
+      batteryCharacteristic.addEventListener("characteristicvaluechanged", updateBattery);
+      await batteryCharacteristic.startNotifications();
+      log("Battery Level notifications started.", "ok");
+    } else {
+      log("Battery Level is readable but does not support notifications.", "note");
+    }
 
   } catch (error) {
     batteryCharacteristic = null;
-    log(`Battery service was not available or not notifiable: ${error?.message || error}`, "note");
+    log(
+      `Battery service is unavailable or inaccessible; telemetry remains active. ` +
+      `${error?.message || error}`,
+      "note"
+    );
   }
 }
 
