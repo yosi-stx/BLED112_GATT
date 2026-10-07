@@ -184,6 +184,9 @@ ver_MINOR = 0
 ver_BUILD = 0
 do_once = 1
 serial_MSP = 0x1234
+ver_label = None      # label widget that shows the MSP version (created once)
+sn_label = None       # label widget that shows the MSP serial number (created once)
+ver_displayed = None  # last (MAJOR, MINOR, BUILD, SN) written to the labels
 BLE_special_command = 0
 
 # Battery level
@@ -266,6 +269,18 @@ def cmnd_3_button_CallBack():
 def ble_special_cmnd_3():
     global BLE_special_command
     BLE_special_command = ord('3') 
+    threading.Thread(target=rw_special_cmnd, daemon=True).start()
+
+def ver_query_button_CallBack():
+    print("Ver query")
+    f_ble_queue.put_nowait(function(target=ble_special_cmnd_Ver))
+
+def ble_special_cmnd_Ver():
+    # ask the CC2650 to send "$$Ver##" to the MSP430.
+    # MSP replies with one version packet (stamp 0x3101/0x1965),
+    # parsed in handle_data() and shown in the version_info line.
+    global BLE_special_command
+    BLE_special_command = ord('V')
     threading.Thread(target=rw_special_cmnd, daemon=True).start()
 
 def rw_red_handle():
@@ -616,16 +631,29 @@ def update_gui(digital, analog, counter, battery_level):
     # s = 'Ver_' + repr(ver_MAJOR) + '.' + repr(ver_MINOR) + '.' + repr(ver_BUILD)
     # version_info.insert(tk.END, "%s" % s )
     global do_once
+    global ver_label
+    global sn_label
+    global ver_displayed
+    # create the labels only once, and keep a reference to the two value labels
     if do_once:
-        s = 'V' + repr(ver_MAJOR) + '.' + repr(ver_MINOR) + '.' + repr(ver_BUILD)
         ttk.Label(version_info, text="Version:" ).grid(column=0, row=0, sticky=tk.W)
-        ttk.Label(version_info, text="%s"  % s).grid(column=1, row=0, sticky=tk.W)
+        ver_label = ttk.Label(version_info, text="")
+        ver_label.grid(column=1, row=0, sticky=tk.W)
         ttk.Label(version_info, text="         " ).grid(column=2, row=0, sticky=tk.W)
         ttk.Label(version_info, text="Serial Number:" ).grid(column=3, row=0, sticky=tk.W)
+        sn_label = ttk.Label(version_info, text="")
+        sn_label.grid(column=4, row=0, sticky=tk.W)
+        do_once = 0
+
+    # refresh the text whenever a new version packet changed the values
+    ver_now = (ver_MAJOR, ver_MINOR, ver_BUILD, serial_MSP)
+    if ver_now != ver_displayed:
+        s = 'V' + repr(ver_MAJOR) + '.' + repr(ver_MINOR) + '.' + repr(ver_BUILD)
+        ver_label.config(text="%s" % s)
         strHex = "%0.4X" % serial_MSP
         s = 'SN_' + strHex
-        ttk.Label(version_info, text="%s"  % s).grid(column=4, row=0, sticky=tk.W)
-        do_once = 0
+        sn_label.config(text="%s" % s)
+        ver_displayed = ver_now
 
 
     root.update()
@@ -1017,6 +1045,8 @@ def my_widgets(frame):
     tk.Button(frame,text ="sleep in 10sec",command = cmnd_1_button_CallBack).grid(row=row,column=0)
     tk.Button(frame,text ="CMD 2 (50msec)",command = cmnd_2_button_CallBack).grid(row=row,column=1)
     tk.Button(frame,text ="CMD 3 (20msec)",command = cmnd_3_button_CallBack).grid(row=row,column=2)
+    row += 1
+    tk.Button(frame,text ="Ver query",command = ver_query_button_CallBack).grid(row=row,column=0)
 
 
 def init_parser():

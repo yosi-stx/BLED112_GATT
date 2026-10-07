@@ -3,7 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>C-TAG BLE Web Monitor</title>
+<!-- <title>C-TAG BLE Web Monitor</title> -->
+<title>Excluder / C-TAG BLE Web Monitor</title>
 <style>
   :root {
     --bg: #0b1520;
@@ -121,7 +122,8 @@
 <div class="app">
   <header>
     <div>
-      <h1>C-TAG BLE Web Monitor</h1>
+      <!-- <h1>C-TAG BLE Web Monitor</h1> -->
+      <h1>Excluder / C-TAG BLE Web Monitor</h1>
       <div class="subtitle">Browser-based replacement for the desktop Python diagnostic application</div>
     </div>
     <div id="connectionStatus" class="status">Not connected</div>
@@ -132,10 +134,11 @@
       <div class="panel-head">Connection</div>
       <div class="panel-body">
         <label for="namePrefix">BLE device name prefix</label>
-        <input id="namePrefix" value="Ctag_" autocomplete="off">
+        <!-- <input id="namePrefix" value="Ctag_" autocomplete="off"> -->
+        <input id="namePrefix" value="Excluder" autocomplete="off">
 
         <div class="button-row">
-          <button id="connectBtn">Connect to C-TAG</button>
+          <button id="connectBtn">Connect to Excluder / C-TAG</button>
           <button id="disconnectBtn" class="ghost" disabled>Disconnect</button>
         </div>
 
